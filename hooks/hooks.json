@@ -1,0 +1,27 @@
+{
+  "description": "Detects meaningful, unaudited project completion and asks for a Project Completeness Audit once per project state.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" session-start",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" stop",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

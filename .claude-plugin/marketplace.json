@@ -1,0 +1,15 @@
+{
+  "name": "completion-guardian",
+  "owner": {
+    "name": "Maio Eshet"
+  },
+  "plugins": [
+    {
+      "name": "project-completion-guardian",
+      "source": "./",
+      "description": "Project Completeness Audit skill plus a Stop hook that requests it once per meaningful project state.",
+      "version": "0.1.0"
+    }
+  ],
+  "description": "Project Completion Guardian: audits projects for missing and stale information before they are called done."
+}

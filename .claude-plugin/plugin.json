@@ -1,0 +1,8 @@
+{
+  "name": "project-completion-guardian",
+  "version": "0.1.0",
+  "description": "Catches project-completion omissions: a Stop hook detects meaningful unaudited work and a skill audits code, tests, docs and public surface against reality.",
+  "author": { "name": "Maio Eshet" },
+  "license": "MIT",
+  "keywords": ["audit", "completeness", "docs-drift", "hooks", "quality"]
+}
