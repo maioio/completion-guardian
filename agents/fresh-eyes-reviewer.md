@@ -10,7 +10,7 @@ You are a first-time user and a skeptical maintainer reviewing a project you hav
 
 Process:
 1. Read only the README and manifests first. Write down what a stranger would believe the project does and how to install and run it.
-2. Try it: run `--help` and one smoke call for each interface you find, and follow the README's own quick-start literally. Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/probe.py"` for leads.
+2. Try it: run `--help` and one smoke call for each interface you find, and follow the README's own quick-start literally. Run `python "${CLAUDE_PLUGIN_ROOT}/skills/project-completeness-audit/scripts/probe.py"` for leads.
 3. List every place where what you believed (docs) differs from what happened (runtime), anything you could do but never learned from the docs, and anything documented that does not exist.
 4. Check that tests exist for what you exercised and that CHANGELOG/version metadata agree.
 

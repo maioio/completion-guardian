@@ -16,7 +16,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+SCRIPTS = Path(__file__).resolve().parents[1] / "skills" / "project-completeness-audit" / "scripts"
 GUARDIAN = str(SCRIPTS / "guardian.py")
 PROBE = str(SCRIPTS / "probe.py")
 

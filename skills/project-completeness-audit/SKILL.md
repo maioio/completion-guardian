@@ -14,7 +14,7 @@ Find what a finished-looking project forgot: missing OR stale/false information 
 
 ## Procedure
 
-1. **Discover first, never assume the stack.** Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/probe.py" <project>`. It reports stack, entry points, commands found in source vs. docs, broken links, version mismatches, Git branch/worktree state. Treat it as a lead list, not a verdict.
+1. **Discover first, never assume the stack.** Run `python "<skill dir>/scripts/probe.py" <project>`. It reports stack, entry points, commands found in source vs. docs, broken links, version mismatches, Git branch/worktree state. Treat it as a lead list, not a verdict.
 2. **Scope.** MILESTONE: `git diff` plus files that reference the changed names. FINAL: everything.
 3. **Check each evidence layer** (see `references/evidence-model.md`): SOURCE, TESTS, RUNTIME, GIT, PACKAGE/BUILD, DOCS, PUBLIC SURFACE. Run real CLI/API/MCP interfaces (`--help`, a smoke call) instead of trusting text.
 4. **Classify every capability** with exactly one status from `references/status-vocabulary.md`. Anything advertised publicly but not ready is `NOT_READY` and a finding.
@@ -23,12 +23,13 @@ Find what a finished-looking project forgot: missing OR stale/false information 
 7. **Fix in-scope drift** (docs, examples, tests, metadata). Report out-of-scope or risky items instead of acting.
 8. **Report** using `references/report-template.md`: findings with evidence, fixed, open, verdict.
 9. **Mark audited** (required, ends the hook loop):
-   `python "${CLAUDE_PLUGIN_ROOT}/scripts/guardian.py" mark --mode milestone|final`
+   `python "<skill dir>/scripts/guardian.py" mark --mode milestone|final --project <project>`
    Run it AFTER fixes, so the fingerprint covers the final state.
 
 ## Requirements and limits
 
-- Steps 1 and 9 run `probe.py` and `guardian.py`, which ship with the `project-completion-guardian` plugin (`${CLAUDE_PLUGIN_ROOT}`). Without the plugin, do the discovery by hand and skip marking.
+- `<skill dir>` is this skill's base directory (the "Base directory for this skill" shown when it loads). `scripts/` ships inside it, so the skill works without the plugin; only Python 3.8+ and git are needed.
+- Without the `project-completion-guardian` plugin there is no automatic Stop-hook trigger; invoke the skill manually.
 - `mark` needs Bash permission. State is only fingerprint plus milestone/final: no per-item completed, ignored or deferred state.
 - A moved or renamed repo is re-audited, not recognized. `status` needs the `--project <path>` form.
 

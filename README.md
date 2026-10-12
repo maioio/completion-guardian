@@ -105,10 +105,11 @@ Fixture in `examples/cli-missing-from-docs/` (a tiny CLI with `init` and `run`, 
 ```
 .claude-plugin/plugin.json, marketplace.json
 hooks/hooks.json           SessionStart + Stop -> scripts/run.sh
-scripts/run.sh             picks python3 / python / py, runs guardian.py
-scripts/guardian.py        snapshot, fingerprint, significance, state, anti-loop
-scripts/probe.py           read-only discovery (source vs docs, links, versions, Git)
-skills/project-completeness-audit/   SKILL.md + references/ (progressive disclosure)
+scripts/run.sh             picks python3 / python / py, runs the skill's guardian.py
+skills/project-completeness-audit/   self-contained skill (this folder is the .skill)
+  SKILL.md, references/
+  scripts/guardian.py      snapshot, fingerprint, significance, state, anti-loop
+  scripts/probe.py         read-only discovery (source vs docs, links, versions, Git)
 agents/fresh-eyes-reviewer.md
 commands/audit.md
 tests/                     scenario + structure tests
@@ -137,5 +138,5 @@ CI runs the tests on Linux and Windows (Python 3.9 and 3.12) plus the structure 
 - A moved or renamed repository has a different state file, so it is safely re-audited rather than recognized.
 - `guardian.py status` requires the `--project <path>` form (`status .` is not supported).
 - Malformed state is moved to `*.bad` and treated as never audited (fail safe).
-- The standalone `.skill` carries only the skill and references; its scripts (`probe.py`, `guardian.py`) come from the plugin.
+- The `.skill` is self-contained for audits (`probe.py`, `mark`, `status`), but a skill cannot register hooks: the automatic Stop-hook trigger exists only with the plugin installed.
 - v0.1.0 is unreleased and unstable.
