@@ -16,3 +16,10 @@ Initial pre-release. Not stable: hook heuristics and the state format may change
 - Optional per-project settings in `.claude/project-completion-guardian.local.md`.
 - Read-only `probe.py` discovery script (commands in source vs docs, broken links, version drift, Git state).
 - 19 scenario tests and a CI workflow.
+
+### Fixed (found by a live end-to-end run)
+- `mark`/`status` run from the Bash tool wrote to a different state directory than the hooks (Bash has no `CLAUDE_PLUGIN_DATA`), so the hook never saw the mark. Hooks now leave a `data-dir.txt` pointer in the fallback directory and the CLI follows it.
+- Repeated `mark` of the same state no longer grows the audit list (idempotent per fingerprint and mode).
+- A state file with the wrong shape made `status`/`mark` crash; it is now moved to `*.bad` and treated as empty (fail safe: re-audit).
+- `status` on a never-audited repo reported the whole project as new; it now reports `change_baseline` (`last_audit`, `session` or `none`) and no phantom churn.
+- `mark` prints `state_file`.

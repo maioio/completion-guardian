@@ -32,6 +32,7 @@ MAX_SNAPSHOT_FILES = 50_000
 MAX_TEXT_BYTES = 256 * 1024
 MAX_STORED_BLOBS = 200
 KEEP_FINGERPRINTS = 25
+POINTER = "data-dir.txt"
 
 DEFAULT_CONFIG = {
     "enabled": True,
@@ -146,12 +147,36 @@ def read_config(root: str) -> dict:
 
 # ------------------------------------------------------------------------ state
 
-def data_dir() -> Path:
-    for var in ("CLAUDE_PLUGIN_DATA",):
-        if os.environ.get(var):
-            return Path(os.environ[var])
+def fallback_dir() -> Path:
     base = os.environ.get("CLAUDE_CONFIG_DIR") or str(Path.home() / ".claude")
     return Path(base) / "plugin-data" / PLUGIN
+
+
+def remember_data_dir() -> None:
+    """Hooks get CLAUDE_PLUGIN_DATA but a Bash-run `mark` does not. Leave a pointer so both share one state dir."""
+    env = os.environ.get("CLAUDE_PLUGIN_DATA")
+    if not env:
+        return
+    try:
+        ptr = fallback_dir() / POINTER
+        if ptr.exists() and ptr.read_text(encoding="utf-8").strip() == env:
+            return
+        ptr.parent.mkdir(parents=True, exist_ok=True)
+        ptr.write_text(env, encoding="utf-8")
+    except OSError:
+        pass
+
+
+def data_dir() -> Path:
+    if os.environ.get("CLAUDE_PLUGIN_DATA"):
+        return Path(os.environ["CLAUDE_PLUGIN_DATA"])
+    try:
+        target = (fallback_dir() / POINTER).read_text(encoding="utf-8").strip()
+        if target and Path(target).is_dir():
+            return Path(target)
+    except OSError:
+        pass
+    return fallback_dir()
 
 
 def state_path(root: str) -> Path:
@@ -161,13 +186,31 @@ def state_path(root: str) -> Path:
 
 def load_state(root: str) -> dict:
     p = state_path(root)
+    fresh = {"version": 1, "root": root, "audited": [], "sessions": {}, "prompted": {}}
     try:
         s = json.loads(p.read_text(encoding="utf-8"))
-        if isinstance(s, dict):
-            return s
+    except FileNotFoundError:
+        return fresh
     except (OSError, ValueError):
+        s = None
+    if valid_state(s):
+        return s
+    try:  # unreadable or wrong shape: keep the evidence, start empty (fail safe = re-audit)
+        os.replace(p, p.with_suffix(".bad"))
+    except OSError:
         pass
-    return {"version": 1, "root": root, "audited": [], "sessions": {}, "prompted": {}}
+    return fresh
+
+
+def valid_state(s) -> bool:
+    if not isinstance(s, dict):
+        return False
+    if not isinstance(s.get("sessions"), dict) or not isinstance(s.get("prompted"), dict):
+        return False
+    if not isinstance(s.get("audited"), list):
+        return False
+    return all(isinstance(a, dict) and isinstance(a.get("fingerprint"), str) and a.get("mode") in ("milestone", "final")
+               and isinstance(a.get("snapshot"), dict) for a in s["audited"])
 
 
 def save_state(root: str, state: dict) -> None:
@@ -526,6 +569,7 @@ def cmd_mark(a) -> int:
     snap = take_snapshot(root)
     fp = fingerprint(snap)
     keep_blobs(root, state, snap)
+    state["audited"] = [x for x in state["audited"] if (x["fingerprint"], x["mode"]) != (fp, a.mode)]  # idempotent
     state["audited"].append({
         "fingerprint": fp, "mode": a.mode, "head": snap["head"],
         "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "snapshot": snap,
@@ -534,7 +578,8 @@ def cmd_mark(a) -> int:
     for s in state["sessions"].values():
         s["snapshot"] = snap  # later sessions measure change from the audited state
     save_state(root, state)
-    print(json.dumps({"marked": True, "mode": a.mode, "fingerprint": fp, "head": snap["head"]}))
+    print(json.dumps({"marked": True, "mode": a.mode, "fingerprint": fp, "head": snap["head"],
+                      "state_file": str(state_path(root))}))
     return 0
 
 
@@ -545,7 +590,9 @@ def cmd_status(a) -> int:
     cur = take_snapshot(root)
     fp = fingerprint(cur)
     last = state["audited"][-1] if state["audited"] else None
-    base = last["snapshot"] if last else {"head": cur["head"], "files": {}, "dirty": []}
+    sessions = sorted(state["sessions"].values(), key=lambda s: s.get("started", 0))
+    baseline = "last_audit" if last else ("session" if sessions else "none")
+    base = last["snapshot"] if last else (sessions[-1]["snapshot"] if sessions else cur)  # never audited: no phantom "everything is new"
     delta = measure_delta(root, state, base, cur)
     meaningful, why = is_meaningful(delta, cfg["audit_level"])
     print(json.dumps({
@@ -554,6 +601,7 @@ def cmd_status(a) -> int:
         "audited_current_state": satisfied(state, fp, "milestone"),
         "audited_final_current_state": satisfied(state, fp, "final"),
         "last_audit": ({k: last[k] for k in ("fingerprint", "mode", "head", "time")} if last else None),
+        "change_baseline": baseline,
         "change_since_last_audit": {"meaningful": meaningful, "why": why, "churn": delta["churn"],
                                      "added": delta["added"][:20], "removed": delta["removed"][:20],
                                      "modified": delta["modified"][:20]},
@@ -591,6 +639,7 @@ def main(argv: list[str] | None = None) -> int:
     for sp in sub.choices.values():
         sp.add_argument("--project", default=None, help="project directory (default: cwd)")
     args = ap.parse_args(argv)
+    remember_data_dir()
     try:
         return args.fn(args)
     except Exception as exc:  # a hook must never wedge a session

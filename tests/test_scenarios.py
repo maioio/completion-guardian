@@ -42,7 +42,11 @@ class Fixture:
         self.data = Path(tempfile.mkdtemp(prefix="guardian-data-"))
         case.addCleanup(shutil.rmtree, self.dir, True)
         case.addCleanup(shutil.rmtree, self.data, True)
-        self.env = {**os.environ, "CLAUDE_PLUGIN_DATA": str(self.data)}
+        self.cfg = Path(tempfile.mkdtemp(prefix="guardian-cfg-"))
+        case.addCleanup(shutil.rmtree, self.cfg, True)
+        # hooks get CLAUDE_PLUGIN_DATA; the model's Bash tool does not (self.bash_env), only CLAUDE_CONFIG_DIR
+        self.env = {**os.environ, "CLAUDE_PLUGIN_DATA": str(self.data), "CLAUDE_CONFIG_DIR": str(self.cfg)}
+        self.bash_env = {k: v for k, v in self.env.items() if k != "CLAUDE_PLUGIN_DATA"}
         self.env.pop("GUARDIAN_DISABLE", None)
         self.git("init", "-q", "-b", "main")
         self.git("config", "user.email", "t@example.invalid")
@@ -80,10 +84,17 @@ class Fixture:
         out = self.hook("stop", session, transcript)
         return json.loads(out) if out else None
 
-    def cli(self, *a: str) -> dict:
-        r = subprocess.run([sys.executable, GUARDIAN, *a, "--project", str(self.dir)], capture_output=True,
-                           text=True, env=self.env, check=True)
+    def cli(self, *a: str, env: dict | None = None, project: str | Path | None = None) -> dict:
+        r = subprocess.run([sys.executable, GUARDIAN, *a, "--project", str(project or self.dir)], capture_output=True,
+                           text=True, env=env or self.env, check=True)
         return json.loads(r.stdout)
+
+    def run_cli(self, *a: str, env: dict | None = None) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, GUARDIAN, *a, "--project", str(self.dir)], capture_output=True,
+                              text=True, env=env or self.env, check=False)
+
+    def state_file(self) -> Path:
+        return Path(self.cli("status")["state_file"])
 
 
 class ScenarioTests(unittest.TestCase):
@@ -245,6 +256,100 @@ class ScenarioTests(unittest.TestCase):
         fx.cli("mark", "--mode", "milestone")
         for f in fx.data.rglob("*.json"):
             self.assertNotIn("SECRETVALUE123", f.read_text(encoding="utf-8"))
+
+    # ---- lifecycle defects found by the live run (see CHANGELOG 0.1.1)
+
+    def test_mark_from_bash_is_seen_by_the_hook(self):
+        """The Bash tool has no CLAUDE_PLUGIN_DATA; its mark must land where the hook reads."""
+        fx = Fixture(self)
+        fx.start()
+        fx.write("tool/cli.py", CLI_V2)
+        self.assertIsNotNone(fx.stop())
+        marked = fx.cli("mark", "--mode", "milestone", env=fx.bash_env)
+        self.assertTrue(Path(marked["state_file"]).is_relative_to(fx.data))
+        self.assertIsNone(fx.stop("s2"))  # fresh session, hook env: the mark is recognized
+        self.assertTrue(fx.cli("status", env=fx.bash_env)["audited_current_state"])
+
+    def test_bash_status_before_any_hook_uses_fallback_dir(self):
+        fx = Fixture(self)
+        out = fx.cli("status", env=fx.bash_env)
+        self.assertTrue(Path(out["state_file"]).is_relative_to(fx.cfg))
+
+    def test_duplicate_mark_is_idempotent(self):
+        fx = Fixture(self)
+        fx.write("tool/cli.py", CLI_V2)
+        for _ in range(3):
+            fx.cli("mark", "--mode", "milestone")
+        self.assertEqual(len(json.loads(fx.state_file().read_text(encoding="utf-8"))["audited"]), 1)
+
+    def test_milestone_mark_does_not_satisfy_final(self):
+        fx = Fixture(self)
+        fx.write("tool/cli.py", CLI_V2)
+        fx.cli("mark", "--mode", "milestone")
+        st = fx.cli("status")
+        self.assertEqual((st["audited_current_state"], st["audited_final_current_state"]), (True, False))
+        fx.cli("mark", "--mode", "final")
+        self.assertTrue(fx.cli("status")["audited_final_current_state"])
+
+    def test_prompted_is_not_audited(self):
+        fx = Fixture(self)
+        fx.start()
+        fx.write("tool/cli.py", CLI_V2)
+        self.assertIsNotNone(fx.stop())  # asked once, never marked
+        self.assertFalse(fx.cli("status")["audited_current_state"])
+        self.assertIsNone(fx.stop())  # silent, but still not "audited"
+        self.assertFalse(fx.cli("status")["audited_current_state"])
+
+    def test_wrong_shape_state_fails_safe(self):
+        fx = Fixture(self)
+        fx.write("tool/cli.py", CLI_V2)
+        fx.cli("mark", "--mode", "milestone")
+        sf = fx.state_file()
+        for bad in ('{"audited": 5}', "{}", "[1]", "{{{", '{"audited":[{"x":1}],"sessions":{},"prompted":{}}'):
+            sf.write_text(bad, encoding="utf-8")
+            r = fx.run_cli("status")
+            self.assertEqual(r.returncode, 0, (bad, r.stderr))
+            self.assertFalse(json.loads(r.stdout)["audited_current_state"], bad)  # unknown => not audited
+            self.assertEqual(json.loads(fx.hook("stop"))["decision"], "block", bad)  # no crash; unknown => re-audit
+            self.assertTrue(sf.with_suffix(".bad").exists(), bad)  # evidence kept
+            sf.with_suffix(".bad").unlink()
+        self.assertEqual(fx.run_cli("mark", "--mode", "milestone").returncode, 0)
+        self.assertTrue(fx.cli("status")["audited_current_state"])
+
+    def test_interrupted_write_leaves_usable_state(self):
+        fx = Fixture(self)
+        fx.write("tool/cli.py", CLI_V2)
+        fx.cli("mark", "--mode", "milestone")
+        sf = fx.state_file()
+        sf.with_suffix(".tmp").write_text('{"audited": [', encoding="utf-8")  # crash mid-write
+        self.assertTrue(fx.cli("status")["audited_current_state"])
+        fx.cli("mark", "--mode", "final")
+        self.assertTrue(fx.cli("status")["audited_final_current_state"])
+
+    def test_project_path_forms_share_one_state(self):
+        fx = Fixture(self)
+        fx.write("tool/cli.py", CLI_V2)
+        fx.cli("mark", "--mode", "milestone")
+        for p in (fx.dir / "tool", str(fx.dir) + os.sep, fx.dir / "tool" / ".." ):
+            self.assertTrue(fx.cli("status", project=p)["audited_current_state"], str(p))
+
+    def test_moved_repo_is_reaudited_not_trusted(self):
+        fx = Fixture(self)
+        fx.write("tool/cli.py", CLI_V2)
+        fx.cli("mark", "--mode", "milestone")
+        moved = fx.dir.parent / (fx.dir.name + "-moved")
+        self.addCleanup(shutil.rmtree, moved, True)
+        shutil.copytree(fx.dir, moved)
+        self.assertFalse(fx.cli("status", project=moved)["audited_current_state"])
+
+    def test_clean_project_reports_no_meaningful_change(self):
+        fx = Fixture(self)
+        st = fx.cli("status")
+        self.assertEqual(st["change_baseline"], "none")
+        self.assertFalse(st["change_since_last_audit"]["meaningful"])  # not "the whole repo is new"
+        self.assertFalse(st["audited_current_state"])
+        fx.start()
+        self.assertIsNone(fx.stop())
 
 
 if __name__ == "__main__":
