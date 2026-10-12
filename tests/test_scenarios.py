@@ -60,7 +60,8 @@ class Fixture:
     def write(self, rel: str, text: str) -> None:
         f = self.dir / rel
         f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(text, encoding="utf-8", newline="\n")
+        with open(f, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
 
     def hook(self, event: str, session: str = "s1", transcript: str | None = None) -> str:
         payload = {"cwd": str(self.dir), "session_id": session, "hook_event_name": event}
