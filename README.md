@@ -133,4 +133,9 @@ CI runs the tests on Linux and Windows (Python 3.9 and 3.12) plus the structure 
 - Churn for files committed and then edited within one session is estimated from the session baseline when available.
 - The Stop hook input fields beyond the working directory are treated as optional, because they may vary between Claude Code versions.
 - Marking an audit requires the model to run `guardian.py mark`, which needs Bash permission. If Bash is denied the hook asks once for that state and then stays silent (no loop), but the state stays unmarked.
+- No per-item state: findings are not tracked as completed, ignored or deferred. The only state is the audited fingerprint, per mode.
+- A moved or renamed repository has a different state file, so it is safely re-audited rather than recognized.
+- `guardian.py status` requires the `--project <path>` form (`status .` is not supported).
+- Malformed state is moved to `*.bad` and treated as never audited (fail safe).
+- The standalone `.skill` carries only the skill and references; its scripts (`probe.py`, `guardian.py`) come from the plugin.
 - v0.1.0 is unreleased and unstable.

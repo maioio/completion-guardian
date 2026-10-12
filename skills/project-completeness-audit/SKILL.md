@@ -1,7 +1,6 @@
 ---
 name: project-completeness-audit
 description: This skill should be used when the Project Completion Guardian hook asks for a "Project Completeness Audit", when the user asks to "audit project completeness", "check for missing docs", "verify the project is complete", "reconcile docs with code", "final project check", or "milestone audit", and before declaring a feature, release or whole project finished.
-version: 0.1.0
 ---
 
 # Project Completeness Audit
@@ -26,6 +25,12 @@ Find what a finished-looking project forgot: missing OR stale/false information 
 9. **Mark audited** (required, ends the hook loop):
    `python "${CLAUDE_PLUGIN_ROOT}/scripts/guardian.py" mark --mode milestone|final`
    Run it AFTER fixes, so the fingerprint covers the final state.
+
+## Requirements and limits
+
+- Steps 1 and 9 run `probe.py` and `guardian.py`, which ship with the `project-completion-guardian` plugin (`${CLAUDE_PLUGIN_ROOT}`). Without the plugin, do the discovery by hand and skip marking.
+- `mark` needs Bash permission. State is only fingerprint plus milestone/final: no per-item completed, ignored or deferred state.
+- A moved or renamed repo is re-audited, not recognized. `status` needs the `--project <path>` form.
 
 ## Hard safety rules
 
